@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration scan="true">
+
+    <!-- Logs we care about -->
+    <logger name="JavaNet" level="DEBUG"/>
+
+    <!-- Appenders -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} [%thread] [%logger{36} - %-5level]: %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!-- Assigning default appenders -->
+    <root level="DEBUG">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
