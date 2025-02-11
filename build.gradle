@@ -62,6 +62,7 @@ dependencies {
     implementation dependencyOf('logback')
     implementation dependencyOf('nd4j')
     implementation dependencyOf('dl4j')
+    implementation dependencyOf('dl4j_core')
 
     def lombok = dependencyOf 'lombok'
     annotationProcessor lombok
