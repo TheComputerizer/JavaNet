@@ -8,3 +8,7 @@ out
 *.iws
 *.iml
 .idea
+
+
+# too big
+mnist_train.csv
