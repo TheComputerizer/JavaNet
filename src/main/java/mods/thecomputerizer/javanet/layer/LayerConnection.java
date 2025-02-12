@@ -1,24 +1,30 @@
-package mods.thecomputerizer.javanet;
+package mods.thecomputerizer.javanet.layer;
 
+import lombok.Getter;
+import mods.thecomputerizer.javanet.neuron.Connection;
+import mods.thecomputerizer.javanet.neuron.Neuron;
 import org.apache.commons.math3.analysis.function.Sigmoid;
 import org.apache.commons.math3.linear.Array2DRowRealMatrix;
 import org.apache.commons.math3.linear.ArrayRealVector;
+import org.apache.commons.math3.linear.RealVector;
 import org.nd4j.linalg.api.rng.Random;
 
 public class LayerConnection {
     
-    private final Layer from;
+    @Getter private final Layer from;
     private final Layer to;
     private final Array2DRowRealMatrix weights;
-    private final ArrayRealVector activationValues;
-    private final ArrayRealVector biases;
+    @Getter private final RealVector activationValues;
+    private final RealVector biases;
     
     public LayerConnection(Layer from, Layer to, Random random, double weightRadius) {
         this.from = from;
         this.to = to;
+        from.setNextLayer(to);
+        int parentCount = from.getNeurons().length;
         int targetCount = to.getNeurons().length;
         this.weights = new Array2DRowRealMatrix(targetCount,from.getNeurons().length);
-        this.activationValues = new ArrayRealVector(targetCount);
+        this.activationValues = new ArrayRealVector(parentCount);
         this.biases = new ArrayRealVector(targetCount);
         populate(random,weightRadius);
     }
@@ -62,7 +68,7 @@ public class LayerConnection {
         for(int row=0;row<neuronsTo.length;row++) {
             Neuron neuron = neuronsTo[row];
             this.biases.setEntry(row,neuron.getBias());
-            Connection[] connections = neuron.getConnections();
+            Connection[] connections = neuron.getParentConnections();
             for(int col=0;col<connections.length;col++)
                 this.weights.setEntry(row,col,connections[col].getWeight());
         }

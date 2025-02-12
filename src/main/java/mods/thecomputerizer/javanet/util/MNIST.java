@@ -1,4 +1,4 @@
-package mods.thecomputerizer.javanet;
+package mods.thecomputerizer.javanet.util;
 
 import au.com.bytecode.opencsv.CSVReader;
 import lombok.Getter;
