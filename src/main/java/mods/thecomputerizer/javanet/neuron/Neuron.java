@@ -46,18 +46,6 @@ public class Neuron extends AbstractTrainable {
         this.forwardConnections.add(connection);
     }
     
-    /**
-     * Only calculate weight offsets. Input scores have everything needed except the activation value of this neuron
-     */
-    @Override public double backPropagate(RealVector offset, double ... dScores) {
-        double weight = 0d;
-        for(Connection connection : this.forwardConnections) {
-            for(double score : dScores) weight+=(score*this.activationValue);
-            offset.setEntry(connection.getTrainingIndex(),weight);
-        }
-        return weight;
-    }
-    
     @Override public int dataSize() {
         return this.parentConnections.length+1;
     }

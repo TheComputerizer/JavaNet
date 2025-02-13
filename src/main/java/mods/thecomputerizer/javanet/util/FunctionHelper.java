@@ -10,6 +10,7 @@ public class FunctionHelper {
      * dS/dx = S(x)*(1-S(x))
      */
     public static double sigmoidDerivative(double value) {
+        //value = new Sigmoid().value(value);
         return value*(1d-value);
     }
     

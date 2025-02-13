@@ -15,6 +15,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -23,7 +24,7 @@ import java.util.List;
 public class NeuralNet extends AbstractTrainable {
     
     private static final Logger LOGGER = LoggerFactory.getLogger("JavaNet NeuralNet");
-    private static final int OFFSET_AVERAGE = 10; //Apply backpropagation offsets every x training cycles
+    private static final int OFFSET_AVERAGE = 50; //Apply backpropagation offsets every x training cycles
     
     public static Builder builder(int ... layers) {
         if(layers.length<=1) throw new RuntimeException("Neural network must have at least 2 layers!");
@@ -76,7 +77,6 @@ public class NeuralNet extends AbstractTrainable {
                 }
             }
             if(somethingChanged) {
-                LOGGER.info("Applying averaged offset data");
                 trainingData = trainingData.add(averageOffset);
                 load(trainingData);
             }
@@ -94,11 +94,10 @@ public class NeuralNet extends AbstractTrainable {
     /**
      * Assumes the scores have not yet been derivated
      */
-    @Override public double backPropagate(RealVector offset, double ... scores) {
+    public void backPropagate(RealVector offset, double ... scores) {
         double[] dScores = new double[scores.length];
-        for(int i=0;i<scores.length;i++) dScores[i] = FastMath.sqrt(scores[i])*2d; //Derivative of a square
+        for(int i=0;i<scores.length;i++) dScores[i] = FastMath.sqrt(scores[i])*2d; //We just need the difference
         this.layers[this.layers.length-1].backPropagate(offset,dScores); //Start back propagating from the output layer
-        return 0d; //We don't need to care about the output here
     }
     
     /**
@@ -115,10 +114,14 @@ public class NeuralNet extends AbstractTrainable {
         return size;
     }
     
-    public double getError(double ... scores) {
+    public double getCost(double ... scores) {
         double sum = 0;
         for(double score : scores) sum+=score;
-        return sum;
+        return FastMath.sqrt(sum/(scores.length-1));
+    }
+    
+    public Layer getOutputLayer() {
+        return this.layers[this.layers.length-1];
     }
     
     @Override public int initScope(int index) {
@@ -148,7 +151,10 @@ public class NeuralNet extends AbstractTrainable {
     private double[] runLayer(int index, double ... values) {
         if(index>=this.connections.length) return values;
         LayerConnection connection = this.connections[index];
-        return runLayer(index+1,connection.run(values));
+        //Activation values in the output layer need to be updated so back propagation can work
+        double[] finalValues = runLayer(index+1,connection.run(values));
+        for(int i=0;i<finalValues.length;i++) getOutputLayer().getNeurons()[i].setActivationValue(finalValues[i]);
+        return finalValues;
     }
     
     public RealVector saveTrainingData() {
@@ -181,7 +187,9 @@ public class NeuralNet extends AbstractTrainable {
         int i=1;
         for(DigitData digit : digits) {
             double[] scores = scores(digit.getData(),digit.getExpectedActivation());
-            if(i%5==0) LOGGER.info("Test {}: Error = {}",i,getError(scores));
+            if(i%25==0) {
+                LOGGER.info("Test {}: Cost = {} (from {})", i, getCost(scores), Arrays.toString(scores));
+            }
             i++;
         }
     }
@@ -200,12 +208,14 @@ public class NeuralNet extends AbstractTrainable {
         }
         if(!offsets.isEmpty()) trainingData = applyOffsets(trainingData,offsets,size,true);
         LOGGER.info("Finished MNIST training cycle! Writing data to file");
-        NNIO.writeTrainingData("trained_data",trainingData);
+        //NNIO.writeTrainingData("trained_data",trainingData);
     }
     
     private RealVector train(RealVector trainingData, DigitData digit, int index, int dataSize, List<RealVector> offsets) {
         double[] scores = scores(digit.getData(),digit.getExpectedActivation());
-        if(index%25==0) LOGGER.info("Training cycle {}: Error = {}",index,getError(scores));
+        if(index%250==0) {
+            LOGGER.info("Training cycle {}: Cost = {} (from {})",index,getCost(scores),Arrays.toString(scores));
+        }
         RealVector offset = new ArrayRealVector(dataSize);
         backPropagate(offset,scores);
         offsets.add(offset);

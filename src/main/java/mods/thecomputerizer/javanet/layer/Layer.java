@@ -2,16 +2,21 @@ package mods.thecomputerizer.javanet.layer;
 
 import lombok.Getter;
 import lombok.Setter;
+import mods.thecomputerizer.javanet.neuron.Connection;
 import mods.thecomputerizer.javanet.neuron.Neuron;
 import mods.thecomputerizer.javanet.training.AbstractTrainable;
 import mods.thecomputerizer.javanet.util.FunctionHelper;
 import org.apache.commons.math3.linear.RealVector;
 import org.nd4j.linalg.api.rng.Random;
 
+import java.util.List;
 import java.util.Objects;
 
 @Getter
 public class Layer extends AbstractTrainable {
+    
+    private static final double BIAS_TRAINING_FACTOR = 0.01d;
+    private static final double WEIGHT_TRAINING_FACTOR = 0.1d;
     
     private final Neuron[] neurons;
     @Setter private Layer nextLayer;
@@ -24,25 +29,63 @@ public class Layer extends AbstractTrainable {
     /**
      * Assumes the scores have already been derivated
      */
-    @Override public double backPropagate(RealVector offset, double ... dScores) {
-        double[] outputScores = new double[dScores.length]; //Scores for every neuron in this layer
+    public void backPropagate(RealVector offset, double ... dScores) {
+        if(Objects.isNull(this.nextLayer))
+            this.connection.getFrom().backPropagate(offset,backPropagateOutput(offset,dScores));
+        else {
+            double[] outputs = new double[this.neurons.length];
+            for(int i=0;i<this.neurons.length;i++) {
+                Neuron neuron = this.neurons[i];
+                List<Connection> connections = neuron.getForwardConnections();
+                double sum = 0d;
+                for(int c=0;c<connections.size();c++) {
+                    double dActivation = FunctionHelper.sigmoidDerivative(neuron.getActivationValue());
+                    sum+=(dScores[c]*connections.get(c).getWeight()*dActivation);
+                }
+                outputs[i] = sum;
+                //I think this just works as is for the bias gradient?
+                offset.setEntry(neuron.getStartingIndex(),outputs[i]*BIAS_TRAINING_FACTOR);
+            }
+            if(Objects.nonNull(this.connection)) {
+                Layer from = this.connection.getFrom();
+                Neuron[] neuronsFrom = from.getNeurons();
+                double[] actualOutputsForReal = new double[neuronsFrom.length];
+                for(int i=0;i<neuronsFrom.length;i++) {
+                    Neuron neuron = from.neurons[i];
+                    double sum = 0d;
+                    List<Connection> connections = neuron.getForwardConnections();
+                    for(int c=0;c<outputs.length;c++) {
+                        Connection forward = connections.get(c);
+                        sum+=(outputs[c]*forward.getWeight());
+                        double value = outputs[c]*neuron.getActivationValue()*WEIGHT_TRAINING_FACTOR;
+                        offset.setEntry(forward.getTrainingIndex(),value);
+                    }
+                    actualOutputsForReal[i] = sum*FunctionHelper.sigmoidDerivative(neuron.getActivationValue());
+                }
+                from.backPropagate(offset,actualOutputsForReal);
+            }
+        }
+    }
+    
+    private double[] backPropagateOutput(RealVector offset, double ... dScores) {
+        double[] outputs = new double[neurons.length];
         for(int i=0;i<this.neurons.length;i++) {
             Neuron neuron = this.neurons[i];
-            double score = dScores[i]*FunctionHelper.sigmoidDerivative(neuron.getActivationValue());
-            outputScores[i] = score;
-            offset.setEntry(neuron.getStartingIndex(),score); //I think this just works as is for the bias gradient?
+            outputs[i] = dScores[i]*FunctionHelper.sigmoidDerivative(neuron.getActivationValue());
+            //I think this just works as is for the bias gradient?
+            offset.setEntry(neuron.getStartingIndex(),outputs[i]*BIAS_TRAINING_FACTOR);
         }
-        if(Objects.nonNull(this.connection)) {
-            Layer from = this.connection.getFrom();
-            Neuron[] neuronsFrom = from.getNeurons();
-            double[] parentScores = new double[neuronsFrom.length]; //Scores for every neuron in the parent layer
-            for(int i=0;i<neuronsFrom.length;i++) {
-                Neuron neuron = from.neurons[i];
-                parentScores[i] = neuron.backPropagate(offset,outputScores);
+        Layer from = this.connection.getFrom();
+        Neuron[] neuronsFrom = from.getNeurons();
+        for(int i=0;i<neuronsFrom.length;i++) {
+            Neuron neuron = from.neurons[i];
+            List<Connection> connections = neuron.getForwardConnections();
+            for(int c=0;c<outputs.length;c++) {
+                double value = outputs[c]*neuron.getActivationValue()*WEIGHT_TRAINING_FACTOR;
+                offset.setEntry(connections.get(c).getTrainingIndex(),value);
             }
-            from.backPropagate(offset,parentScores); //Propagate to the parent layer
         }
-        return 0d; //We don't need to care about the output here
+        return outputs;
     }
     
     @Override public int dataSize() {
