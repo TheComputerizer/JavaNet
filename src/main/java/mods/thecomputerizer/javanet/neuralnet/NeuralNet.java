@@ -1,10 +1,11 @@
 package mods.thecomputerizer.javanet.neuralnet;
 
+import mods.thecomputerizer.javanet.neuron.Neuron;
 import mods.thecomputerizer.javanet.training.AbstractTrainable;
+import mods.thecomputerizer.javanet.util.FunctionHelper;
 import mods.thecomputerizer.javanet.util.MNIST;
 import mods.thecomputerizer.javanet.util.MNIST.DigitData;
 import mods.thecomputerizer.javanet.layer.Layer;
-import mods.thecomputerizer.javanet.layer.LayerConnection;
 import mods.thecomputerizer.javanet.util.NNIO;
 import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.commons.math3.linear.RealVector;
@@ -14,8 +15,6 @@ import org.nd4j.linalg.api.rng.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -24,202 +23,131 @@ import java.util.List;
 public class NeuralNet extends AbstractTrainable {
     
     private static final Logger LOGGER = LoggerFactory.getLogger("JavaNet NeuralNet");
-    private static final int OFFSET_AVERAGE = 50; //Apply backpropagation offsets every x training cycles
     
     public static Builder builder(int ... layers) {
         if(layers.length<=1) throw new RuntimeException("Neural network must have at least 2 layers!");
         return new Builder(layers);
     }
     
-    private final LayerConnection[] connections;
     private final Layer[] layers;
     
     /**
      * Initialize Layer & LayerConnection arrays
      */
-    public NeuralNet(Layer inputLayer, Layer outputLayer, Layer[] hiddenLayers, double weightRadius, double biasRadius) {
-        Layer[] layers = new Layer[hiddenLayers.length+2];
-        layers[0] = inputLayer;
-        layers[layers.length-1] = outputLayer;
-        int i=1;
-        for(Layer layer : hiddenLayers) {
-            layers[i] = layer;
-            i++;
-        }
-        Random random;
-        try(Random r = new DefaultRandom()) {
-            random = r;
-            for(Layer layer : layers) layer.populateBias(random,biasRadius);
+    public NeuralNet(Layer[] layers, double weightRadius, double biasRadius) {
+        this.layers = layers;
+        try(Random random = new DefaultRandom()) {
+            for(int i=0;i<layers.length;i++) {
+                Layer l = layers[i];
+                l.initializeNeurons(i);
+                l.randomize(random,biasRadius,weightRadius);
+            }
+            getOutputLayer().setFunctions(FunctionHelper::sigmoid,v -> v);
+            //getinputLayer().setFunctions(FunctionHelper::relu,FunctionHelper::reluDerivative);
         } catch(Exception ex) {
             throw new RuntimeException("Failed to initialize CpuNativeRandom",ex);
         }
-        this.layers = layers;
-        this.connections = new LayerConnection[layers.length-1];
-        connectLayers(random,weightRadius);
-        initScope(0);
         load(NNIO.getTrainingData("trained_data"));
-    }
-    
-    /**
-     * Averages & applies offset gradients gathered via back propagation
-     */
-    RealVector applyOffsets(RealVector trainingData, List<RealVector> offsets, int dataSize, boolean ignoreSize) {
-        if(offsets.isEmpty()) return trainingData;
-        int offsetSize = offsets.size();
-        if(ignoreSize || offsetSize>=OFFSET_AVERAGE) {
-            RealVector averageOffset = new ArrayRealVector(dataSize);
-            boolean somethingChanged = false;
-            for(int i=0;i<dataSize;i++) {
-                double average = averageAt(offsets,offsetSize,i);
-                if(average!=0d) {
-                    averageOffset.setEntry(i,average);
-                    somethingChanged = true;
-                }
-            }
-            if(somethingChanged) {
-                trainingData = trainingData.add(averageOffset);
-                load(trainingData);
-            }
-            offsets.clear();
-        }
-        return trainingData;
-    }
-    
-    double averageAt(List<RealVector> offsets, int size, int index) {
-        double total = 0d;
-        for(RealVector offset : offsets) total+=(offset.getEntry(index));
-        return total/((double)size);
     }
     
     /**
      * Assumes the scores have not yet been derivated
      */
-    public void backPropagate(RealVector offset, double ... scores) {
-        double[] dScores = new double[scores.length];
-        for(int i=0;i<scores.length;i++) dScores[i] = FastMath.sqrt(scores[i])*2d; //We just need the difference
-        this.layers[this.layers.length-1].backPropagate(offset,dScores); //Start back propagating from the output layer
+    public void backPropagate(RealVector errors) {
+        this.layers[this.layers.length-1].backPropagate(errors); //Start back propagating from the output layer
     }
     
-    /**
-     * Set up connections between layers
-     */
-    private void connectLayers(Random random, double weightRadius) {
-        for(int i=0;i<this.connections.length;i++)
-            this.connections[i] = this.layers[i+1].setConnection(this.layers[i],random,weightRadius);
-    }
-    
-    @Override public int dataSize() {
-        int size = 0;
-        for(Layer layer : this.layers) size+=layer.dataSize();
-        return size;
-    }
-    
-    public double getCost(double ... scores) {
-        double sum = 0;
-        for(double score : scores) sum+=score;
-        return FastMath.sqrt(sum/(scores.length-1));
-    }
-    
-    public Layer getOutputLayer() {
-        return this.layers[this.layers.length-1];
-    }
-    
-    @Override public int initScope(int index) {
-        for(Layer layer : this.layers) index = layer.initScope(index);
-        return index;
-    }
-    
-    @Override protected void loadFrom(RealVector data, int index) {
-        if(data.getDimension()==0) {
-            LOGGER.debug("Skipping load for empty training data set");
-            return;
-        }
-        for(Layer layer : this.layers) layer.load(data);
-    }
-    
-    /**
-     * Inputs the values into the initial layer and returns the output of the final layer
-     */
-    public double[] run(double ... values) {
-        return runLayer(0,values);
-    }
-    
-    /**
-     * Use the output of the layer at the given index to run the next layer.
-     * Once the final layer is reached the values are returned
-     */
-    private double[] runLayer(int index, double ... values) {
-        if(index>=this.connections.length) return values;
-        LayerConnection connection = this.connections[index];
-        //Activation values in the output layer need to be updated so back propagation can work
-        double[] finalValues = runLayer(index+1,connection.run(values));
-        for(int i=0;i<finalValues.length;i++) getOutputLayer().getNeurons()[i].setActivationValue(finalValues[i]);
-        return finalValues;
-    }
-    
-    public RealVector saveTrainingData() {
-        RealVector data = new ArrayRealVector(dataSize());
-        store(data);
-        return data;
+    private RealVector feedForward(RealVector inputs) {
+        RealVector output = inputs;
+        for(Layer layer : this.layers) //Order should always be preserved so this is fine
+            output = layer.feedForward(output);
+        return output;
     }
     
     /**
      * Runs the inputs through the network and checks the output against the expected output
      * Returns the margin of error for each output neuron
      */
-    public double[] scores(double[] inputs, double ... expectedOutputs) {
-        double[] outputs = run(inputs);
-        if(outputs.length!=expectedOutputs.length)
-            throw new RuntimeException("Training output mismatch! Expected "+expectedOutputs.length+" "+
-                                       "values but got "+outputs.length);
-        double[] scores = new double[outputs.length];
-        for(int i=0;i<outputs.length;i++) scores[i] = FastMath.pow(outputs[i]-expectedOutputs[i],2d);
-        return scores;
+    public RealVector forwardCost(double[] inputs, RealVector expected) {
+        RealVector outputs = feedForward(new ArrayRealVector(inputs));
+        if(outputs.getDimension()!=expected.getDimension())
+            throw new RuntimeException("Training output mismatch! Expected "+expected.getDimension()+" "+
+                                       "values but got "+outputs.getDimension());
+        return outputs;
     }
     
-    @Override protected void storeFrom(RealVector data, int index) {
+    public Layer[] getHiddenLayers() {
+        Layer[] hidden = new Layer[this.layers.length-2];
+        System.arraycopy(this.layers,1,hidden,0,this.layers.length-2);
+        return hidden;
+    }
+    
+    public Layer getinputLayer() {
+        return this.layers[0];
+    }
+    
+    public Layer getOutputLayer() {
+        return this.layers[this.layers.length-1];
+    }
+    
+    public int getTrainingDataSize() {
+        Neuron last = getOutputLayer().getLastNeuron();
+        return last.getTotalIndex()+last.getInputWeights().length+1;
+    }
+    
+    @Override public void load(RealVector data) {
+        int dataSize = data.getDimension();
+        if(dataSize==0) {
+            LOGGER.info("Skipping load for empty training data set");
+            return;
+        }
+        for(Layer layer : this.layers) layer.load(data);
+    }
+    
+    public double rmsCost(RealVector costs) {
+        double sum = 0;
+        for(double score : costs.toArray()) sum+=FastMath.pow(score,2d);
+        return FastMath.sqrt(sum/(costs.getDimension()-1));
+    }
+    
+    public RealVector savedTrainingData() {
+        RealVector data = new ArrayRealVector(getTrainingDataSize());
+        store(data);
+        return data;
+    }
+    
+    @Override public void store(RealVector data) {
         for(Layer layer : this.layers) layer.store(data);
     }
     
     public void test() {
         List<DigitData> digits = MNIST.readTesting();
         LOGGER.info("Running MNIST test with {} digits",digits.size());
-        int i=1;
-        for(DigitData digit : digits) {
-            double[] scores = scores(digit.getData(),digit.getExpectedActivation());
-            if(i%25==0) {
-                LOGGER.info("Test {}: Cost = {} (from {})", i, getCost(scores), Arrays.toString(scores));
-            }
-            i++;
-        }
+        for(int i=0;i<digits.size();i++) test(digits.get(i),i+1);
+    }
+    
+    private void test(DigitData digit, int index) {
+        RealVector expected = new ArrayRealVector(digit.getExpectedActivation());
+        RealVector outputs = forwardCost(digit.getData(),expected);
+        RealVector costs = FunctionHelper.crossEntropyLoss(outputs,expected);
+        if(index%25==0) LOGGER.info("Training cycle {}: Cost = {} (from {})",index,rmsCost(costs),outputs);
     }
     
     public void train() {
-        RealVector trainingData = saveTrainingData();
-        LOGGER.info("Training data size is {}",trainingData.getDimension());
+        LOGGER.info("Training data size is {}",getTrainingDataSize());
         List<DigitData> digits = MNIST.readTraining();
         LOGGER.info("Running MNIST training with {} digits",digits.size());
-        int i=1;
-        List<RealVector> offsets = new ArrayList<>();
-        int size = dataSize();
-        for(DigitData digit : digits) {
-            trainingData = train(trainingData,digit,i,size,offsets);
-            i++;
-        }
-        if(!offsets.isEmpty()) trainingData = applyOffsets(trainingData,offsets,size,true);
+        for(int i=0;i<digits.size();i++) train(digits.get(i),i+1);
         LOGGER.info("Finished MNIST training cycle! Writing data to file");
-        //NNIO.writeTrainingData("trained_data",trainingData);
+        NNIO.writeTrainingData("trained_data",savedTrainingData());
     }
     
-    private RealVector train(RealVector trainingData, DigitData digit, int index, int dataSize, List<RealVector> offsets) {
-        double[] scores = scores(digit.getData(),digit.getExpectedActivation());
-        if(index%250==0) {
-            LOGGER.info("Training cycle {}: Cost = {} (from {})",index,getCost(scores),Arrays.toString(scores));
-        }
-        RealVector offset = new ArrayRealVector(dataSize);
-        backPropagate(offset,scores);
-        offsets.add(offset);
-        return applyOffsets(trainingData,offsets,dataSize,false);
+    private void train(DigitData digit, int index) {
+        RealVector expected = new ArrayRealVector(digit.getExpectedActivation());
+        RealVector outputs = forwardCost(digit.getData(),expected);
+        RealVector costs = FunctionHelper.crossEntropyLoss(outputs,expected);
+        if(index%1000==0) LOGGER.info("Training cycle {}: Cost = {} (from {})",index,rmsCost(costs),outputs);
+        backPropagate(outputs.subtract(expected));
     }
     
     /**
@@ -240,16 +168,20 @@ public class NeuralNet extends AbstractTrainable {
             System.arraycopy(layers,1,this.hiddenLayers,0,layers.length-2);
         }
         
-        public NeuralNet build() {
-            return new NeuralNet(new Layer(this.initialLayer),new Layer(this.finalLayer),buildHiddenLayers(),
-                                 this.weightRadius,this.biasRadius);
+        private void addParents(Layer[] layers) {
+            for(int i=layers.length-2;i>=0;i--) {
+                Layer l = layers[i];
+                l.setNext(layers[i+1]);
+            }
         }
         
-        Layer[] buildHiddenLayers() {
-            if(this.hiddenLayers.length==0) return new Layer[]{};
-            Layer[] layers = new Layer[this.hiddenLayers.length];
-            for(int i=0;i<this.hiddenLayers.length;i++) layers[i] = new Layer(this.hiddenLayers[i]);
-            return layers;
+        public NeuralNet build() {
+            Layer[] layers = new Layer[this.hiddenLayers.length+2];
+            layers[0] = new Layer(this.initialLayer);
+            for(int i=0;i<hiddenLayers.length;i++) layers[i+1] = new Layer(layers[i],this.hiddenLayers[i]);
+            layers[layers.length-1] = new Layer(layers[layers.length-2],this.finalLayer);
+            addParents(layers);
+            return new NeuralNet(layers,this.weightRadius,this.biasRadius);
         }
         
         public Builder setBiasRadius(double radius) {

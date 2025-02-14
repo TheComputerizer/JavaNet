@@ -21,7 +21,7 @@ public class JavaNet {
     }
     
     static NeuralNet defaultNeuralNet() {
-        return NeuralNet.builder(784,16,16,10).setBiasRadius(10d).setWeightRadius(10d).build();
+        return NeuralNet.builder(784,256,256,10).setBiasRadius(0.25d).setWeightRadius(0.25d).build();
     }
     
     static void digitNet(boolean training) {

@@ -74,6 +74,7 @@ public class NNIO {
     
     public static void writeToFile(String path, byte[] bytes) {
         try(FileOutputStream stream = new FileOutputStream(getFile(path+".bytes",true))) {
+            LOGGER.info("Writing bytes to file {}",path);
             stream.write(bytes);
         } catch(IOException ex) {
             LOGGER.error("Failed to write bytes to {}",path,ex);
