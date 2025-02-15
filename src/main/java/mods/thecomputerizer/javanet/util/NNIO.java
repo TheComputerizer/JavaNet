@@ -14,6 +14,8 @@ import java.nio.DoubleBuffer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import static java.lang.Double.BYTES;
+
 /**
  * I/O Helper methods for storing/retrieving training data
  */
@@ -55,10 +57,9 @@ public class NNIO {
     
     public static byte[] toBytes(RealVector vector) {
         double[] values = vector.toArray();
-        ByteBuffer buffer = ByteBuffer.allocate(values.length*8);
-        byte[] bytes = new byte[buffer.remaining()];
-        buffer.get(bytes); //ByteBuffer#toArray doesn't work if the buffer is direct
-        return bytes;
+        ByteBuffer buffer = ByteBuffer.allocate(values.length*BYTES);
+        for(double value : values) buffer.putDouble(value);
+        return buffer.array();
     }
     
     public static RealVector toVector(byte[] bytes) {

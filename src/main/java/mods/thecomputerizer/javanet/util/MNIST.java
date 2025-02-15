@@ -61,11 +61,10 @@ public class MNIST {
         return List.of();
     }
     
-    @Getter
     public static class DigitData {
         
-        private final int expected;
-        private final double[] expectedActivation;
+        @Getter private final int expected;
+        @Getter private final double[] expectedActivation;
         private final double[] data;
         
         private DigitData(int expected, double[] data) {
@@ -73,6 +72,16 @@ public class MNIST {
             this.expectedActivation = new double[10];
             this.expectedActivation[expected] = 1d;
             this.data = data;
+        }
+        
+        public double[] getData() {
+            double[] normalized = new double[this.data.length];
+            for(int i=0;i<normalized.length;i++) normalized[i] = normalize(this.data[i]);
+            return normalized;
+        }
+        
+        private double normalize(double value) {
+            return (value/255d);
         }
     }
 }

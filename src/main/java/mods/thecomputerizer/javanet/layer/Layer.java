@@ -77,7 +77,8 @@ public class Layer extends AbstractTrainable {
         // Compute local errors for neurons in this layer.
         // For an output neuron, gradients should be the loss derivative.
         // For a hidden neuron, gradients should be the weighted error from the next layer.
-        RealVector gradients = errors.copy().ebeMultiply(derivatives()); // error * derivative of each output activation
+        RealVector gradients = errors.copy();
+        if(!isOutput()) gradients.ebeMultiply(derivatives()); // error * derivative of each output activation
         applyBiasGradients(gradients); //Apply as is to apply for bias values
         
         // The gradient of a single weight is simply the activation value of the incoming neuron
@@ -118,12 +119,12 @@ public class Layer extends AbstractTrainable {
     public RealVector feedForward(RealVector activations) {
         if(isInput()) {
             this.activationValues = activations;
-            return activations;
+            return this.next.feedForward(activations);
         }
         RealVector biases = this.assembleBiases();
         RealMatrix weights = assembleWeights();
         this.activationValues = weights.operate(activations).add(biases).map(this.forwardFunc);
-        return this.activationValues;
+        return isOutput() ? FunctionHelper.softmax(this.activationValues) : this.next.feedForward(this.activationValues);
     }
     
     public Neuron getLastNeuron() {
@@ -143,6 +144,10 @@ public class Layer extends AbstractTrainable {
     
     public boolean isInput() {
         return Objects.isNull(this.previous);
+    }
+    
+    public boolean isOutput() {
+        return Objects.isNull(this.next);
     }
     
     @Override public void load(RealVector data) {

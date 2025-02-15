@@ -9,12 +9,12 @@ import mods.thecomputerizer.javanet.layer.Layer;
 import mods.thecomputerizer.javanet.util.NNIO;
 import org.apache.commons.math3.linear.ArrayRealVector;
 import org.apache.commons.math3.linear.RealVector;
-import org.apache.commons.math3.util.FastMath;
 import org.nd4j.linalg.api.rng.DefaultRandom;
 import org.nd4j.linalg.api.rng.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -42,8 +42,8 @@ public class NeuralNet extends AbstractTrainable {
                 l.initializeNeurons(i);
                 l.randomize(random,biasRadius,weightRadius);
             }
-            getOutputLayer().setFunctions(FunctionHelper::sigmoid,v -> v);
-            //getinputLayer().setFunctions(FunctionHelper::relu,FunctionHelper::reluDerivative);
+            getOutputLayer().setFunctions(v -> v,v -> v);
+            getHiddenLayers()[1].setFunctions(FunctionHelper::relu,FunctionHelper::reluDerivative);
         } catch(Exception ex) {
             throw new RuntimeException("Failed to initialize CpuNativeRandom",ex);
         }
@@ -58,10 +58,7 @@ public class NeuralNet extends AbstractTrainable {
     }
     
     private RealVector feedForward(RealVector inputs) {
-        RealVector output = inputs;
-        for(Layer layer : this.layers) //Order should always be preserved so this is fine
-            output = layer.feedForward(output);
-        return output;
+        return getInputLayer().feedForward(inputs);
     }
     
     /**
@@ -82,7 +79,7 @@ public class NeuralNet extends AbstractTrainable {
         return hidden;
     }
     
-    public Layer getinputLayer() {
+    public Layer getInputLayer() {
         return this.layers[0];
     }
     
@@ -104,12 +101,6 @@ public class NeuralNet extends AbstractTrainable {
         for(Layer layer : this.layers) layer.load(data);
     }
     
-    public double rmsCost(RealVector costs) {
-        double sum = 0;
-        for(double score : costs.toArray()) sum+=FastMath.pow(score,2d);
-        return FastMath.sqrt(sum/(costs.getDimension()-1));
-    }
-    
     public RealVector savedTrainingData() {
         RealVector data = new ArrayRealVector(getTrainingDataSize());
         store(data);
@@ -123,21 +114,32 @@ public class NeuralNet extends AbstractTrainable {
     public void test() {
         List<DigitData> digits = MNIST.readTesting();
         LOGGER.info("Running MNIST test with {} digits",digits.size());
-        for(int i=0;i<digits.size();i++) test(digits.get(i),i+1);
+        List<DigitData> wrong = new ArrayList<>();
+        int right = 0;
+        for(int i=0;i<digits.size();i++) {
+            DigitData digit = digits.get(i);
+            int previous = right;
+            right = test(digit,i+1,right);
+            if(previous==right) wrong.add(digit);
+        }
+        double percent = (((double)right)/((double)digits.size()))*100d;
+        LOGGER.info("Finished MNIST test with success rate of {}%",percent);
     }
     
-    private void test(DigitData digit, int index) {
-        RealVector expected = new ArrayRealVector(digit.getExpectedActivation());
-        RealVector outputs = forwardCost(digit.getData(),expected);
-        RealVector costs = FunctionHelper.crossEntropyLoss(outputs,expected);
-        if(index%25==0) LOGGER.info("Training cycle {}: Cost = {} (from {})",index,rmsCost(costs),outputs);
+    private int test(DigitData digit, int index, int right) {
+        RealVector outputs = forwardCost(digit.getData(),new ArrayRealVector(digit.getExpectedActivation()));
+        int expected = digit.getExpected();
+        int actual = FunctionHelper.maxIndex(outputs.toArray());
+        if(index%25==0) LOGGER.info("Testing cycle {}: Expected = {} Actual = {}",index,expected,actual);
+        return expected==actual ? right+1 : right;
     }
     
-    public void train() {
+    public void train(int cycles) {
         LOGGER.info("Training data size is {}",getTrainingDataSize());
         List<DigitData> digits = MNIST.readTraining();
-        LOGGER.info("Running MNIST training with {} digits",digits.size());
-        for(int i=0;i<digits.size();i++) train(digits.get(i),i+1);
+        LOGGER.info("Running MNIST training with {} digits for {} cycles",digits.size(),cycles);
+        for(int c=0;c<cycles;c++)
+            for(int i=0;i<digits.size();i++) train(digits.get(i),(digits.size()*c)+i+1);
         LOGGER.info("Finished MNIST training cycle! Writing data to file");
         NNIO.writeTrainingData("trained_data",savedTrainingData());
     }
@@ -146,7 +148,9 @@ public class NeuralNet extends AbstractTrainable {
         RealVector expected = new ArrayRealVector(digit.getExpectedActivation());
         RealVector outputs = forwardCost(digit.getData(),expected);
         RealVector costs = FunctionHelper.crossEntropyLoss(outputs,expected);
-        if(index%1000==0) LOGGER.info("Training cycle {}: Cost = {} (from {})",index,rmsCost(costs),outputs);
+        if(index%1000==0)
+            LOGGER.info("Training cycle {}: Cost = {}\n\t\texpected = {}\n\t\tactual = {}\n",index,
+                        FunctionHelper.average(costs),expected,outputs);
         backPropagate(outputs.subtract(expected));
     }
     

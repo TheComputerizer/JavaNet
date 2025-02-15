@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 import mods.thecomputerizer.javanet.layer.Layer;
 import mods.thecomputerizer.javanet.training.AbstractTrainable;
+import mods.thecomputerizer.javanet.util.FunctionHelper;
 import org.apache.commons.math3.linear.RealVector;
 import org.nd4j.linalg.api.rng.Random;
 
@@ -76,9 +77,16 @@ public class Neuron extends AbstractTrainable {
             data.setEntry(this.totalIndex+i+1,this.inputWeights[i]);
     }
     
+    /**
+     * Randomize weights via He initialization to account for exploding Leaky ReLU activations.
+     * Bias values are added so they don't contribute towards exploding as much.
+     */
     public void randomize(Random random, double biasRadius, double weightRadius) {
         this.bias = initRandomly(random,biasRadius);
-        for(int i=0;i<this.inputWeights.length;i++) this.inputWeights[i] = initRandomly(random,weightRadius);
+        for(int i=0;i<this.inputWeights.length;i++) {
+            double initFactor = weightRadius==0 ? 1d : initRandomly(random,weightRadius);
+            this.inputWeights[i] = FunctionHelper.heInit(random,this.inputWeights.length,this.outputWeights.length)*initFactor;
+        }
         updatePreviousLayerOutputWeights();
     }
     

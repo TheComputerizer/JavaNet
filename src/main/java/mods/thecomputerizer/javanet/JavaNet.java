@@ -16,18 +16,18 @@ public class JavaNet {
         }
         String arg = args[0];
         LOGGER.info("Beginning to take over the world! I mean do some {}",arg);
-        digitNet(!"testing".equalsIgnoreCase(arg));
+        digitNet(!"testing".equalsIgnoreCase(arg),args.length>1 ? Integer.parseInt(args[1]) : 1);
         LOGGER.info("----- END MAIN -----");
     }
     
     static NeuralNet defaultNeuralNet() {
-        return NeuralNet.builder(784,256,256,10).setBiasRadius(0.25d).setWeightRadius(0.25d).build();
+        return NeuralNet.builder(784,256,256,10).setBiasRadius(0.5d).setWeightRadius(0d).build();
     }
     
-    static void digitNet(boolean training) {
+    static void digitNet(boolean training, int cycles) {
         LOGGER.info("Running digit recognizer {} sequence",training ? "training" : "testing");
         NeuralNet neuralNet = defaultNeuralNet();
-        if(training) neuralNet.train();
+        if(training) neuralNet.train(cycles);
         else neuralNet.test();
         LOGGER.info("Finished running {} sequence",training ? "training" : "testing");
     }
