@@ -10,7 +10,7 @@ public class FunctionHelper {
         if(length==1) return 0;
         long index = 0;
         for(long l=1L;l<length;l++)
-            if(values.getDouble(l)>values.getDouble(index)) index = l;
+            if(values.getFloat(l)>values.getFloat(index)) index = l;
         return (int)index;
     }
 }

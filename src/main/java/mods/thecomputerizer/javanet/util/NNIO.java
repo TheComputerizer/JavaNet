@@ -10,11 +10,11 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.nio.DoubleBuffer;
+import java.nio.FloatBuffer;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
-import static java.lang.Double.BYTES;
+import static java.lang.Float.BYTES;
 
 /**
  * I/O Helper methods for storing/retrieving training data
@@ -57,16 +57,16 @@ public class NNIO {
     }
     
     public static byte[] toBytes(INDArray data) {
-        double[] values = data.toDoubleVector();
+        float[] values = data.toFloatVector();
         ByteBuffer buffer = ByteBuffer.allocate(values.length*BYTES);
-        for(double value : values) buffer.putDouble(value);
+        for(float value : values) buffer.putFloat(value);
         return buffer.array();
     }
     
     public static INDArray toVector(byte[] bytes) {
-        DoubleBuffer buffer = ByteBuffer.wrap(bytes).asDoubleBuffer();
-        double[] asArray = new double[buffer.remaining()];
-        buffer.get(asArray); //DoubleBuffer#toArray doesn't work if the buffer is direct
+        FloatBuffer buffer = ByteBuffer.wrap(bytes).asFloatBuffer();
+        float[] asArray = new float[buffer.remaining()];
+        buffer.get(asArray); //FloatBuffer#toArray doesn't work if the buffer is direct
         return Nd4j.createFromArray(asArray);
     }
     

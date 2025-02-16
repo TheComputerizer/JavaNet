@@ -15,7 +15,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
-import static org.nd4j.linalg.api.buffer.DataType.DOUBLE;
 import static org.nd4j.linalg.api.buffer.DataType.FLOAT;
 
 public class MNIST {
@@ -75,9 +74,9 @@ public class MNIST {
         
         private DigitData(int expected, double[] data) {
             this.expected = expected;
-            this.expectedActivation = Nd4j.zeros(DOUBLE,10);
-            this.expectedActivation.putScalar(expected,1d);
-            this.data = Nd4j.createFromArray(data).divi(255d);
+            this.expectedActivation = Nd4j.zeros(FLOAT,10);
+            this.expectedActivation.putScalar(expected,1f);
+            this.data = Nd4j.createFromArray(data).divi(255d).castTo(FLOAT);
         }
         
         /**

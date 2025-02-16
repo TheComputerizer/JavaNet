@@ -11,13 +11,13 @@ import org.nd4j.linalg.factory.Nd4j;
 
 import java.util.Objects;
 
-import static org.nd4j.linalg.api.buffer.DataType.DOUBLE;
+import static org.nd4j.linalg.api.buffer.DataType.FLOAT;
 
 @Getter
 public class Layer extends AbstractTrainable {
     
-    private static final double MOMENTUM = 0.5d;
-    private static final double LEARNING_RATE = 0.001d;
+    private static final float MOMENTUM = 0.5f;
+    private static final float LEARNING_RATE = 0.001f;
     
     private final Layer previous;
     private final INDArray biases;
@@ -38,10 +38,10 @@ public class Layer extends AbstractTrainable {
         this.previous = previous;
         this.size = size;
         this.function = new ActivationSigmoid();
-        this.biases = Nd4j.create(DOUBLE,size);
-        this.biasUpdates = Nd4j.zeros(DOUBLE, size);
-        this.weights = isInput() ? null : Nd4j.create(DOUBLE,size,this.previous.size);
-        this.weightUpdates = isInput() ? null : Nd4j.zeros(DOUBLE,size,this.previous.size);
+        this.biases = Nd4j.create(FLOAT,size);
+        this.biasUpdates = Nd4j.zeros(FLOAT,size);
+        this.weights = isInput() ? null : Nd4j.create(FLOAT,size,this.previous.size);
+        this.weightUpdates = isInput() ? null : Nd4j.zeros(FLOAT,size,this.previous.size);
     }
     
     /**
@@ -93,7 +93,7 @@ public class Layer extends AbstractTrainable {
     
     protected INDArray getPreviousError(INDArray errors, INDArray previousActivations) {
         // Reshape errors to be a column vector and activationValues to be a row vector
-        INDArray errorsColumn = errors.reshape(errors.length(), 1);
+        INDArray errorsColumn = errors.reshape(errors.length(),1);
         INDArray activationsRow = previousActivations.reshape(1,previousActivations.length());
         
         // Compute the outer product and scale it by the learning rate
@@ -118,8 +118,8 @@ public class Layer extends AbstractTrainable {
     public void initializeNeurons(int index, IWeightInit biasInit, IWeightInit weightInit) {
         if(isInput()) return;
         int previousSize = this.previous.size;
-        this.biases.addi(initWeight(Nd4j.ones(this.size),biasInit,this.size,1,this.size));
-        this.weights.addi(initWeight(Nd4j.ones(this.size,previousSize),weightInit,previousSize,this.size,this.size,previousSize));
+        this.biases.addi(initWeight(Nd4j.ones(FLOAT,this.size),biasInit,this.size,1,this.size));
+        this.weights.addi(initWeight(Nd4j.ones(FLOAT,this.size,previousSize),weightInit,previousSize,this.size,this.size,previousSize));
         setIndex(index);
     }
     
@@ -131,43 +131,42 @@ public class Layer extends AbstractTrainable {
         return Objects.isNull(this.next);
     }
     
-    /**
-     * Load from 4D array (layer,type,output,input)
-     */
     @Override public void load(INDArray data) {
         if(isInput()) return;
         
         //Reset update values
-        this.biasUpdates.muli(0d);
-        this.weightUpdates.muli(0d);
+        this.biasUpdates.assign(0d);
+        this.weightUpdates.assign(0d);
         
-        long index = getTrainingIndex();
-        
-        //Add from data matrix to load
-        for(int i=0;i<this.size;i++) {
-            this.biases.putScalar(i,data.getDouble(index));
-            index++;
-        }
-        for(int i=0;i<this.size;i++) {
-            for(int j=0;j<this.previous.size;j++) {
-                this.weights.putScalar(i,j,data.getDouble(index));
-                index++;
-            }
-        }
+        //Load values
+        loadWeights(data,loadBias(data,getTrainingIndex()));
+    }
+    
+    private long loadBias(INDArray data, long start) {
+        long end = start+this.biases.length();
+        this.biases.assign(subset(data,start,end));
+        return end;
+    }
+    
+    private void loadWeights(INDArray data, long start) {
+        assignVectorToMatrix(this.weights,subset(data,start,start+this.weights.length()));
     }
     
     @Override public void store(INDArray data) {
         if(isInput()) return;
-        long index = getTrainingIndex();
-        //Add from data matrix to load
-        for(long l=0;l<this.biases.length();l++) {
-            data.putScalar(index,this.biases.getDouble(l));
-            index++;
-        }
-        INDArray flat = this.weights.ravel();
-        for(long l=0;l<flat.length();l++) {
-            data.putScalar(index,flat.getDouble(l));
-            index++;
-        }
+        
+        //Store values
+        storeWeights(data,storeBias(data,getTrainingIndex()));
+    }
+    
+    private long storeBias(INDArray data, long start) {
+        long end = start+this.biases.length();
+        data.put(intervalAsArray(start,end),this.biases);
+        return end;
+    }
+    
+    private void storeWeights(INDArray data, long start) {
+        INDArray flatWeights = this.weights.ravel();
+        data.put(intervalAsArray(start,start+flatWeights.length()),flatWeights);
     }
 }

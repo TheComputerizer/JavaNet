@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-import static org.nd4j.linalg.api.buffer.DataType.DOUBLE;
+import static org.nd4j.linalg.api.buffer.DataType.FLOAT;
 
 /**
  * TODO Train & Test!
@@ -92,7 +92,7 @@ public class NeuralNet extends AbstractTrainable {
     }
     
     public INDArray savedTrainingData() {
-        INDArray data = Nd4j.create(DOUBLE,getTrainingDataSize());
+        INDArray data = Nd4j.create(FLOAT,getTrainingDataSize());
         store(data);
         return data;
     }
