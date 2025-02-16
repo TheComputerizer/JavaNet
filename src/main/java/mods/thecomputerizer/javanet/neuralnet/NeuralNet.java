@@ -114,7 +114,7 @@ public class NeuralNet extends AbstractTrainable {
         }
         double percent = (((double)right)/((double)digits.size()))*100d;
         LOGGER.info("Finished MNIST test with success rate of {}%",percent);
-        if(!wrong.isEmpty()) ImageRender.INSTANCE.loadAndDisplay(wrong.getFirst().getImageData());
+        if(!wrong.isEmpty()) ImageRender.INSTANCE.loadAndDisplay(MNIST.toImages(wrong));
     }
     
     private int test(DigitData digit, int index, int right) {

@@ -7,14 +7,17 @@ import org.nd4j.linalg.factory.Nd4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 
+import static java.awt.image.BufferedImage.TYPE_BYTE_GRAY;
 import static org.nd4j.linalg.api.buffer.DataType.FLOAT;
 
 public class MNIST {
@@ -65,6 +68,12 @@ public class MNIST {
         return List.of();
     }
     
+    public static Collection<BufferedImage> toImages(Collection<DigitData> digits) {
+        List<BufferedImage> images = new ArrayList<>();
+        for(DigitData digit : digits) images.add(digit.getAsImage());
+        return images;
+    }
+    
     @Getter
     public static class DigitData {
         
@@ -79,19 +88,32 @@ public class MNIST {
             this.data = Nd4j.createFromArray(data).divi(255d).castTo(FLOAT);
         }
         
+        private void addAnswerSquares(BufferedImage image) {
+            for(int i=0;i<this.expected;i++) image.setRGB(i*2,0,rbgInt(255,0,0));
+        }
+        
         /**
          * Convert digit data stored as a 1D array of doubles to a 3D array index by x, y, & rbg values
          */
-        public INDArray getImageData() {
-            INDArray rgbByPos = Nd4j.create(FLOAT,28,28,3); //x,y,rbg
-            for(int x=0;x<28;x++)
-                for(int y=0;y<28;y++) indexToRGB(rgbByPos,x,y);
-            return rgbByPos;
+        public BufferedImage getAsImage() {
+            BufferedImage image = new BufferedImage(28,28,TYPE_BYTE_GRAY);
+            for(int x=0;x<28;x++) {
+                for(int y=0;y<28;y++) {
+                    float scale = this.data.getFloat((y*28)+x);
+                    int gray = Math.clamp((int)(scale*255f),0,255);
+                    image.setRGB(x,y,grayToRGB(gray));
+                }
+            }
+            addAnswerSquares(image);
+            return image;
         }
         
-        private void indexToRGB(INDArray rgbByPos, long x, long y) {
-            float dataAtIndex = this.data.getFloat((x*28)+y);
-            for(long c=0;c<3;c++) rgbByPos.putScalar(new long[]{x,y,c},dataAtIndex);
+        private int grayToRGB(int gray) {
+            return rbgInt(gray,gray,gray);
+        }
+        
+        private int rbgInt(int r, int g, int b) {
+            return ((0xFF)<<24)|((r&0xFF)<<16)|((g&0xFF)<<8)|((b&0xFF));
         }
     }
 }

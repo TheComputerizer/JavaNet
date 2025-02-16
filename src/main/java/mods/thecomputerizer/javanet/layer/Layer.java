@@ -50,8 +50,7 @@ public class Layer extends AbstractTrainable {
      * bias & weight values while being able to easily update the values after the recursion is finished
      */
     public void backPropagate(INDArray errors) {
-        // We don't care about the bias values for the input layer, and it doesn't have any input weights to consider,
-        // so we should stop here.
+        // We don't care about the bias values for the input layer, and it doesn't have any input weights to consider.
         if(isInput()) return;
         
         // Compute local errors for neurons in this layer.
@@ -97,7 +96,7 @@ public class Layer extends AbstractTrainable {
         INDArray activationsRow = previousActivations.reshape(1,previousActivations.length());
         
         // Compute the outer product and scale it by the learning rate
-        return errorsColumn.mmul(activationsRow).mul(LEARNING_RATE);
+        return errorsColumn.mmul(activationsRow).muli(LEARNING_RATE);
     }
     
     protected int getTrainingIndex() {
@@ -135,8 +134,8 @@ public class Layer extends AbstractTrainable {
         if(isInput()) return;
         
         //Reset update values
-        this.biasUpdates.assign(0d);
-        this.weightUpdates.assign(0d);
+        this.biasUpdates.assign(0f);
+        this.weightUpdates.assign(0f);
         
         //Load values
         loadWeights(data,loadBias(data,getTrainingIndex()));
