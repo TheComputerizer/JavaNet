@@ -1,21 +1,26 @@
 package mods.thecomputerizer.javanet.neuralnet;
 
-import mods.thecomputerizer.javanet.neuron.Neuron;
+import mods.thecomputerizer.javanet.render.ImageRender;
 import mods.thecomputerizer.javanet.training.AbstractTrainable;
 import mods.thecomputerizer.javanet.util.FunctionHelper;
 import mods.thecomputerizer.javanet.util.MNIST;
 import mods.thecomputerizer.javanet.util.MNIST.DigitData;
 import mods.thecomputerizer.javanet.layer.Layer;
 import mods.thecomputerizer.javanet.util.NNIO;
-import org.apache.commons.math3.linear.ArrayRealVector;
-import org.apache.commons.math3.linear.RealVector;
-import org.nd4j.linalg.api.rng.DefaultRandom;
-import org.nd4j.linalg.api.rng.Random;
+import org.deeplearning4j.nn.weights.IWeightInit;
+import org.nd4j.linalg.activations.impl.ActivationGELU;
+import org.nd4j.linalg.activations.impl.ActivationSoftmax;
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.factory.Nd4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
+
+import static org.nd4j.linalg.api.buffer.DataType.DOUBLE;
 
 /**
  * TODO Train & Test!
@@ -34,49 +39,36 @@ public class NeuralNet extends AbstractTrainable {
     /**
      * Initialize Layer & LayerConnection arrays
      */
-    public NeuralNet(Layer[] layers, double weightRadius, double biasRadius) {
+    public NeuralNet(Layer[] layers, IWeightInit biasInit, IWeightInit weightInit) {
         this.layers = layers;
-        try(Random random = new DefaultRandom()) {
-            for(int i=0;i<layers.length;i++) {
-                Layer l = layers[i];
-                l.initializeNeurons(i);
-                l.randomize(random,biasRadius,weightRadius);
-            }
-            getOutputLayer().setFunctions(v -> v,v -> v);
-            getHiddenLayers()[1].setFunctions(FunctionHelper::relu,FunctionHelper::reluDerivative);
-        } catch(Exception ex) {
-            throw new RuntimeException("Failed to initialize CpuNativeRandom",ex);
-        }
+        for(int i=0;i<layers.length;i++) layers[i].initializeNeurons(i,biasInit,weightInit);
+        getOutputLayer().setFunction(new ActivationSoftmax());
+        this.layers[1].setFunction(new ActivationGELU());
+        this.layers[2].setFunction(new ActivationGELU());
         load(NNIO.getTrainingData("trained_data"));
     }
     
     /**
      * Assumes the scores have not yet been derivated
      */
-    public void backPropagate(RealVector errors) {
+    public void backPropagate(INDArray errors) {
         this.layers[this.layers.length-1].backPropagate(errors); //Start back propagating from the output layer
     }
     
-    private RealVector feedForward(RealVector inputs) {
-        return getInputLayer().feedForward(inputs);
+    private INDArray feedForward(INDArray inputs, boolean training) {
+        return getInputLayer().feedForward(inputs,training);
     }
     
     /**
      * Runs the inputs through the network and checks the output against the expected output
      * Returns the margin of error for each output neuron
      */
-    public RealVector forwardCost(double[] inputs, RealVector expected) {
-        RealVector outputs = feedForward(new ArrayRealVector(inputs));
-        if(outputs.getDimension()!=expected.getDimension())
-            throw new RuntimeException("Training output mismatch! Expected "+expected.getDimension()+" "+
-                                       "values but got "+outputs.getDimension());
+    public INDArray forwardCost(INDArray inputs, INDArray expected, boolean training) {
+        INDArray outputs = feedForward(inputs,training);
+        if(outputs.length()!=expected.length())
+            throw new RuntimeException("Training output mismatch! Expected "+expected.length()+" "+
+                                       "values but got "+outputs.length());
         return outputs;
-    }
-    
-    public Layer[] getHiddenLayers() {
-        Layer[] hidden = new Layer[this.layers.length-2];
-        System.arraycopy(this.layers,1,hidden,0,this.layers.length-2);
-        return hidden;
     }
     
     public Layer getInputLayer() {
@@ -88,26 +80,24 @@ public class NeuralNet extends AbstractTrainable {
     }
     
     public int getTrainingDataSize() {
-        Neuron last = getOutputLayer().getLastNeuron();
-        return last.getTotalIndex()+last.getInputWeights().length+1;
+        return getOutputLayer().getTrainingSize();
     }
     
-    @Override public void load(RealVector data) {
-        int dataSize = data.getDimension();
-        if(dataSize==0) {
+    @Override public void load(@Nullable INDArray data) {
+        if(Objects.isNull(data)) {
             LOGGER.info("Skipping load for empty training data set");
             return;
         }
         for(Layer layer : this.layers) layer.load(data);
     }
     
-    public RealVector savedTrainingData() {
-        RealVector data = new ArrayRealVector(getTrainingDataSize());
+    public INDArray savedTrainingData() {
+        INDArray data = Nd4j.create(DOUBLE,getTrainingDataSize());
         store(data);
         return data;
     }
     
-    @Override public void store(RealVector data) {
+    @Override public void store(INDArray data) {
         for(Layer layer : this.layers) layer.store(data);
     }
     
@@ -124,12 +114,13 @@ public class NeuralNet extends AbstractTrainable {
         }
         double percent = (((double)right)/((double)digits.size()))*100d;
         LOGGER.info("Finished MNIST test with success rate of {}%",percent);
+        if(!wrong.isEmpty()) ImageRender.INSTANCE.loadAndDisplay(wrong.getFirst().getImageData());
     }
     
     private int test(DigitData digit, int index, int right) {
-        RealVector outputs = forwardCost(digit.getData(),new ArrayRealVector(digit.getExpectedActivation()));
+        INDArray outputs = forwardCost(digit.getData(),digit.getExpectedActivation(),false);
         int expected = digit.getExpected();
-        int actual = FunctionHelper.maxIndex(outputs.toArray());
+        int actual = FunctionHelper.maxIndex(outputs);
         if(index%25==0) LOGGER.info("Testing cycle {}: Expected = {} Actual = {}",index,expected,actual);
         return expected==actual ? right+1 : right;
     }
@@ -145,13 +136,13 @@ public class NeuralNet extends AbstractTrainable {
     }
     
     private void train(DigitData digit, int index) {
-        RealVector expected = new ArrayRealVector(digit.getExpectedActivation());
-        RealVector outputs = forwardCost(digit.getData(),expected);
-        RealVector costs = FunctionHelper.crossEntropyLoss(outputs,expected);
+        INDArray expected = digit.getExpectedActivation();
+        INDArray outputs = forwardCost(digit.getData(),expected,true);
+        INDArray costs = Nd4j.loss().softmaxCrossEntropy(expected,outputs,null);
         if(index%1000==0)
             LOGGER.info("Training cycle {}: Cost = {}\n\t\texpected = {}\n\t\tactual = {}\n",index,
-                        FunctionHelper.average(costs),expected,outputs);
-        backPropagate(outputs.subtract(expected));
+                        costs.meanNumber(),expected,outputs);
+        backPropagate(outputs.sub(expected));
     }
     
     /**
@@ -162,8 +153,8 @@ public class NeuralNet extends AbstractTrainable {
         private final int initialLayer;
         private final int finalLayer;
         private final int[] hiddenLayers;
-        private double weightRadius;
-        private double biasRadius;
+        private IWeightInit biasInit;
+        private IWeightInit weightInit;
         
         Builder(int ... layers) {
             this.initialLayer = layers[0];
@@ -185,16 +176,16 @@ public class NeuralNet extends AbstractTrainable {
             for(int i=0;i<hiddenLayers.length;i++) layers[i+1] = new Layer(layers[i],this.hiddenLayers[i]);
             layers[layers.length-1] = new Layer(layers[layers.length-2],this.finalLayer);
             addParents(layers);
-            return new NeuralNet(layers,this.weightRadius,this.biasRadius);
+            return new NeuralNet(layers,this.biasInit,this.weightInit);
         }
         
-        public Builder setBiasRadius(double radius) {
-            this.biasRadius = radius;
+        public Builder setBiasInit(IWeightInit init) {
+            this.biasInit = init;
             return this;
         }
         
-        public Builder setWeightRadius(double radius) {
-            this.weightRadius = radius;
+        public Builder setWeightInit(IWeightInit init) {
+            this.weightInit = init;
             return this;
         }
     }

@@ -1,6 +1,8 @@
 package mods.thecomputerizer.javanet;
 
 import mods.thecomputerizer.javanet.neuralnet.NeuralNet;
+import org.deeplearning4j.nn.weights.WeightInitUniform;
+import org.deeplearning4j.nn.weights.WeightInitXavier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,7 +23,10 @@ public class JavaNet {
     }
     
     static NeuralNet defaultNeuralNet() {
-        return NeuralNet.builder(784,256,256,10).setBiasRadius(0.5d).setWeightRadius(0d).build();
+        return NeuralNet.builder(784,128,128,10)
+                .setBiasInit(new WeightInitUniform())
+                .setWeightInit(new WeightInitXavier())
+                .build();
     }
     
     static void digitNet(boolean training, int cycles) {

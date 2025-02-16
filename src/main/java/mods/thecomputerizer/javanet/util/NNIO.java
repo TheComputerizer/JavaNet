@@ -1,7 +1,7 @@
 package mods.thecomputerizer.javanet.util;
 
-import org.apache.commons.math3.linear.ArrayRealVector;
-import org.apache.commons.math3.linear.RealVector;
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.factory.Nd4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,8 +37,9 @@ public class NNIO {
         return file;
     }
     
-    public static RealVector getTrainingData(String path) {
-        return toVector(readFromFile(path));
+    public static INDArray getTrainingData(String path) {
+        byte[] bytes = readFromFile(path);
+        return bytes.length==0 ? null : toVector(bytes);
     }
     
     public static byte[] readFromFile(String path) {
@@ -55,21 +56,21 @@ public class NNIO {
         return new byte[]{};
     }
     
-    public static byte[] toBytes(RealVector vector) {
-        double[] values = vector.toArray();
+    public static byte[] toBytes(INDArray data) {
+        double[] values = data.toDoubleVector();
         ByteBuffer buffer = ByteBuffer.allocate(values.length*BYTES);
         for(double value : values) buffer.putDouble(value);
         return buffer.array();
     }
     
-    public static RealVector toVector(byte[] bytes) {
+    public static INDArray toVector(byte[] bytes) {
         DoubleBuffer buffer = ByteBuffer.wrap(bytes).asDoubleBuffer();
         double[] asArray = new double[buffer.remaining()];
         buffer.get(asArray); //DoubleBuffer#toArray doesn't work if the buffer is direct
-        return new ArrayRealVector(asArray);
+        return Nd4j.createFromArray(asArray);
     }
     
-    public static void writeTrainingData(String path, RealVector data) {
+    public static void writeTrainingData(String path, INDArray data) {
         writeToFile(path,toBytes(data));
     }
     

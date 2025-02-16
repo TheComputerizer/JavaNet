@@ -1,9 +1,9 @@
 package mods.thecomputerizer.javanet.training;
 
-import org.apache.commons.math3.linear.RealVector;
+import org.nd4j.linalg.api.ndarray.INDArray;
 
 public interface Trainable {
     
-    void load(RealVector data);
-    void store(RealVector data);
+    void load(INDArray data);
+    void store(INDArray data);
 }

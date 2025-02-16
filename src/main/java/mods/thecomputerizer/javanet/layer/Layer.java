@@ -2,28 +2,33 @@ package mods.thecomputerizer.javanet.layer;
 
 import lombok.Getter;
 import lombok.Setter;
-import mods.thecomputerizer.javanet.neuron.Neuron;
 import mods.thecomputerizer.javanet.training.AbstractTrainable;
-import mods.thecomputerizer.javanet.util.FunctionHelper;
-import org.apache.commons.math3.analysis.UnivariateFunction;
-import org.apache.commons.math3.linear.Array2DRowRealMatrix;
-import org.apache.commons.math3.linear.ArrayRealVector;
-import org.apache.commons.math3.linear.RealMatrix;
-import org.apache.commons.math3.linear.RealVector;
-import org.nd4j.linalg.api.rng.Random;
+import org.deeplearning4j.nn.weights.IWeightInit;
+import org.nd4j.linalg.activations.IActivation;
+import org.nd4j.linalg.activations.impl.ActivationSigmoid;
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.factory.Nd4j;
 
 import java.util.Objects;
+
+import static org.nd4j.linalg.api.buffer.DataType.DOUBLE;
 
 @Getter
 public class Layer extends AbstractTrainable {
     
-    private final Neuron[] neurons;
+    private static final double MOMENTUM = 0.5d;
+    private static final double LEARNING_RATE = 0.001d;
+    
     private final Layer previous;
+    private final INDArray biases;
+    private final INDArray biasUpdates;
+    private final INDArray weights;
+    private final INDArray weightUpdates;
+    private final int size;
     @Setter private Layer next;
-    private int index; //Index of this layer in the network
-    private UnivariateFunction forwardFunc;
-    private UnivariateFunction backwardFunc; //Should be at least the 1st derivative of the forward function
-    private RealVector activationValues;
+    @Setter private int index; //Index of this layer in the network used for storing & loading training data
+    @Setter private IActivation function;
+    private INDArray activationValues;
     
     public Layer(int size) {
         this(null,size);
@@ -31,45 +36,20 @@ public class Layer extends AbstractTrainable {
     
     public Layer(Layer previous, int size) {
         this.previous = previous;
-        this.neurons = new Neuron[size];
-        this.forwardFunc = FunctionHelper::sigmoid;
-        this.backwardFunc = FunctionHelper::sigmoidDerivative;
-    }
-    
-    private void applyBiasGradients(RealVector gradients) {
-        double[] gradientArray = gradients.toArray();
-        for(int i=0;i<gradientArray.length;i++) this.neurons[i].applyBiasGradient(gradientArray[i]);
-    }
-    
-    /**
-     * The weight matrix (row,col) is (output,input).
-     * Each row corresponds to the input weights for a single neuron in the output layer.
-     * This is assumed to be called in the output layer.
-     */
-    private void applyWeightGradients(RealVector previousActivations, RealVector gradients) {
-        for(int i=0;i<this.neurons.length;i++)
-            this.neurons[i].applyInputWeightGradients(previousActivations.copy().mapMultiply(gradients.getEntry(i)));
+        this.size = size;
+        this.function = new ActivationSigmoid();
+        this.biases = Nd4j.create(DOUBLE,size);
+        this.biasUpdates = Nd4j.zeros(DOUBLE, size);
+        this.weights = isInput() ? null : Nd4j.create(DOUBLE,size,this.previous.size);
+        this.weightUpdates = isInput() ? null : Nd4j.zeros(DOUBLE,size,this.previous.size);
     }
     
     /**
-     * Bias values for the neurons of THIS layer.
-     * Actual bias values are stored in each neuron and should not be stored here
+     * To be a bit more efficient we can use separate update arrays for biases and weight.
+     * This makes it possible to calculate gradient values for the entire network against the original
+     * bias & weight values while being able to easily update the values after the recursion is finished
      */
-    private RealVector assembleBiases() {
-        RealVector biases = new ArrayRealVector(this.neurons.length);
-        for(int i=0;i<this.neurons.length;i++) biases.setEntry(i,this.neurons[i].getBias());
-        return biases;
-    }
-    
-    private RealMatrix assembleWeights() {
-        RealMatrix weights = new Array2DRowRealMatrix(this.neurons.length,this.previous.neurons.length);
-        for(int i=0;i<weights.getColumnDimension();i++)
-            for(int j=0;j<weights.getRowDimension();j++)
-                weights.setEntry(j,i,this.previous.neurons[i].getOutputWeights()[j]);
-        return weights;
-    }
-    
-    public void backPropagate(RealVector errors) {
+    public void backPropagate(INDArray errors) {
         // We don't care about the bias values for the input layer, and it doesn't have any input weights to consider,
         // so we should stop here.
         if(isInput()) return;
@@ -77,68 +57,69 @@ public class Layer extends AbstractTrainable {
         // Compute local errors for neurons in this layer.
         // For an output neuron, gradients should be the loss derivative.
         // For a hidden neuron, gradients should be the weighted error from the next layer.
-        RealVector gradients = errors.copy();
-        if(!isOutput()) gradients.ebeMultiply(derivatives()); // error * derivative of each output activation
-        applyBiasGradients(gradients); //Apply as is to apply for bias values
+        if(isDifferentiable(this.function)) // error * derivative of each output activation unless using softmax
+            // or any other non-differentiable activation function
+            errors = applyBackwards(this.function,this.activationValues,errors);
+        
+        //Apply as is to apply for bias values
+        this.biasUpdates.muli(MOMENTUM).addi(errors.mul(LEARNING_RATE));
         
         // The gradient of a single weight is simply the activation value of the incoming neuron
         // multiplied by the gradient of the outgoing neuron.
-        applyWeightGradients(this.previous.activationValues,gradients);
+        this.weightUpdates.muli(MOMENTUM).addi(getPreviousError(errors,this.previous.activationValues));
         
-        // The "hard" part where we need to pass error data to the previous layer for its back propagation step.
-        // The number of errors needs to match the number of neurons for the propagating layer, so that is first.
-        RealVector previousErrors = new ArrayRealVector(this.previous.neurons.length);
-        // Now we need to use the gradients we calculated for this layer to get a sum for each input neuron.
-        // Each input error value should be the sum of each gradient value multiplied by the weight of the connection
-        // between the input and the output that the gradient corresponds to.
-        for(int p=0;p<previousErrors.getDimension();p++) { // p for previous because why not
-            Neuron previousNeuron = this.previous.getNeurons()[p];
-            double sum = 0d;
-            // I find using output weights easier to conceptualize here
-            double[] outputWeights = previousNeuron.getOutputWeights();
-            for(int o=0;o<outputWeights.length;o++) // and of course o for output
-                sum+=(outputWeights[o]*gradients.getEntry(o));
-            previousErrors.setEntry(p,sum);
-        }
+        errors = errors.reshape(1,errors.length()).mmul(this.weights).getRow(0);
+        
+        // Apply the queued updates to the weight and the bias values now that the original values are no longer needed
+        this.biases.subi(this.biasUpdates);
+        this.weights.subi(this.weightUpdates);
         
         // Recursively back-propagate to the previous layer.
-        this.previous.backPropagate(previousErrors);
-    }
-    
-    /**
-     * Map the current activation values of this layer to their derivatives
-     */
-    private RealVector derivatives() {
-        return this.activationValues.copy().map(this.backwardFunc);
+        this.previous.backPropagate(errors);
     }
     
     /**
      * For each output neuron, get the sum of each input neuron * the weight of the connection + output bias.
      * Apply activation function (sigmoid, reLU, tan, etc.)
      */
-    public RealVector feedForward(RealVector activations) {
+    public INDArray feedForward(INDArray activations, boolean training) {
         if(isInput()) {
             this.activationValues = activations;
-            return this.next.feedForward(activations);
+            return this.next.feedForward(activations,training);
         }
-        RealVector biases = this.assembleBiases();
-        RealMatrix weights = assembleWeights();
-        this.activationValues = weights.operate(activations).add(biases).map(this.forwardFunc);
-        return isOutput() ? FunctionHelper.softmax(this.activationValues) : this.next.feedForward(this.activationValues);
+        this.activationValues = applyForward(this.function,this.weights.mmul(activations).addi(biases),training);
+        return isOutput() ? this.activationValues : this.next.feedForward(this.activationValues,training);
     }
     
-    public Neuron getLastNeuron() {
-        return this.neurons[this.neurons.length-1];
+    protected INDArray getPreviousError(INDArray errors, INDArray previousActivations) {
+        // Reshape errors to be a column vector and activationValues to be a row vector
+        INDArray errorsColumn = errors.reshape(errors.length(), 1);
+        INDArray activationsRow = previousActivations.reshape(1,previousActivations.length());
+        
+        // Compute the outer product and scale it by the learning rate
+        return errorsColumn.mmul(activationsRow).mul(LEARNING_RATE);
+    }
+    
+    protected int getTrainingIndex() {
+        return isInput() ? 0 : this.previous.getTrainingSize();
     }
     
     /**
-     * Instantiates all the neurons in this layer.
+     * Recursively
+     */
+    public int getTrainingSize() {
+        return isInput() ? 0 : this.previous.getTrainingSize()+(int)this.biases.length()+(int)this.weights.length();
+    }
+    
+    /**
+     * Instantiates all the bias and weight values for this layer
      * Assumes the structure of the net and the next layer for this object have already been set as necessary
      */
-    public void initializeNeurons(int index) {
-        int previousSize = Objects.nonNull(this.previous) ? this.previous.neurons.length : 0;
-        int nextSize = Objects.nonNull(this.next) ? this.next.neurons.length : 0;
-        for(int i=0;i<this.neurons.length;i++) this.neurons[i] = new Neuron(this,previousSize,nextSize);
+    public void initializeNeurons(int index, IWeightInit biasInit, IWeightInit weightInit) {
+        if(isInput()) return;
+        int previousSize = this.previous.size;
+        this.biases.addi(initWeight(Nd4j.ones(this.size),biasInit,this.size,1,this.size));
+        this.weights.addi(initWeight(Nd4j.ones(this.size,previousSize),weightInit,previousSize,this.size,this.size,previousSize));
         setIndex(index);
     }
     
@@ -150,37 +131,43 @@ public class Layer extends AbstractTrainable {
         return Objects.isNull(this.next);
     }
     
-    @Override public void load(RealVector data) {
-        for(Neuron neuron : this.neurons) neuron.load(data);
-    }
-    
-    public void randomize(Random random, double biasRadius, double weightRadius) {
-        for(Neuron neuron : this.neurons) neuron.randomize(random,biasRadius,weightRadius);
-    }
-    
-    public void setFunctions(UnivariateFunction forward, UnivariateFunction backward) {
-        this.forwardFunc = forward;
-        this.backwardFunc = backward;
-    }
-    
-    private void setIndex(int index) {
-        this.index = index;
-        int total = 0;
-        if(Objects.nonNull(this.previous)) {
-            Neuron[] previousNeurons = this.previous.neurons;
-            Neuron last = previousNeurons[previousNeurons.length-1];
-            total = last.getTotalIndex()+last.getInputWeights().length+(this.previous.isInput() ? 0 : 1);
+    /**
+     * Load from 4D array (layer,type,output,input)
+     */
+    @Override public void load(INDArray data) {
+        if(isInput()) return;
+        
+        //Reset update values
+        this.biasUpdates.muli(0d);
+        this.weightUpdates.muli(0d);
+        
+        long index = getTrainingIndex();
+        
+        //Add from data matrix to load
+        for(int i=0;i<this.size;i++) {
+            this.biases.putScalar(i,data.getDouble(index));
+            index++;
         }
-        for(int i=0;i<this.neurons.length;i++) {
-            Neuron n = this.neurons[i];
-            n.setLayerIndex(i);
-            n.setTotalIndex(total);
-            //The total will still end up as 0 if this is the input layer since it doesn't need to save bias
-            total+=(n.getInputWeights().length+(isInput() ? 0 : 1));
+        for(int i=0;i<this.size;i++) {
+            for(int j=0;j<this.previous.size;j++) {
+                this.weights.putScalar(i,j,data.getDouble(index));
+                index++;
+            }
         }
     }
     
-    @Override public void store(RealVector data) {
-        for(Neuron neuron : this.neurons) neuron.store(data);
+    @Override public void store(INDArray data) {
+        if(isInput()) return;
+        long index = getTrainingIndex();
+        //Add from data matrix to load
+        for(long l=0;l<this.biases.length();l++) {
+            data.putScalar(index,this.biases.getDouble(l));
+            index++;
+        }
+        INDArray flat = this.weights.ravel();
+        for(long l=0;l<flat.length();l++) {
+            data.putScalar(index,flat.getDouble(l));
+            index++;
+        }
     }
 }

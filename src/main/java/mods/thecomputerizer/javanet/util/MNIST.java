@@ -2,6 +2,8 @@ package mods.thecomputerizer.javanet.util;
 
 import au.com.bytecode.opencsv.CSVReader;
 import lombok.Getter;
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.factory.Nd4j;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -12,6 +14,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+
+import static org.nd4j.linalg.api.buffer.DataType.DOUBLE;
+import static org.nd4j.linalg.api.buffer.DataType.FLOAT;
 
 public class MNIST {
     
@@ -61,27 +66,33 @@ public class MNIST {
         return List.of();
     }
     
+    @Getter
     public static class DigitData {
         
-        @Getter private final int expected;
-        @Getter private final double[] expectedActivation;
-        private final double[] data;
+        private final int expected;
+        private final INDArray expectedActivation;
+        private final INDArray data;
         
         private DigitData(int expected, double[] data) {
             this.expected = expected;
-            this.expectedActivation = new double[10];
-            this.expectedActivation[expected] = 1d;
-            this.data = data;
+            this.expectedActivation = Nd4j.zeros(DOUBLE,10);
+            this.expectedActivation.putScalar(expected,1d);
+            this.data = Nd4j.createFromArray(data).divi(255d);
         }
         
-        public double[] getData() {
-            double[] normalized = new double[this.data.length];
-            for(int i=0;i<normalized.length;i++) normalized[i] = normalize(this.data[i]);
-            return normalized;
+        /**
+         * Convert digit data stored as a 1D array of doubles to a 3D array index by x, y, & rbg values
+         */
+        public INDArray getImageData() {
+            INDArray rgbByPos = Nd4j.create(FLOAT,28,28,3); //x,y,rbg
+            for(int x=0;x<28;x++)
+                for(int y=0;y<28;y++) indexToRGB(rgbByPos,x,y);
+            return rgbByPos;
         }
         
-        private double normalize(double value) {
-            return (value/255d);
+        private void indexToRGB(INDArray rgbByPos, long x, long y) {
+            float dataAtIndex = this.data.getFloat((x*28)+y);
+            for(long c=0;c<3;c++) rgbByPos.putScalar(new long[]{x,y,c},dataAtIndex);
         }
     }
 }
